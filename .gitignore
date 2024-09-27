@@ -8,6 +8,7 @@ checkpoints/
 *.ckpt
 *.pt
 *.model
+*.csv
 
 # Bỏ qua các logs và tệp tạm thời
 logs/
