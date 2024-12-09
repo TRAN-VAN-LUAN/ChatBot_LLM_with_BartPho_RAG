@@ -9,11 +9,15 @@ checkpoints/
 *.pt
 *.model
 *.csv
+*.arrow
+*.json
+*.db
 
 # Bỏ qua các logs và tệp tạm thời
 logs/
 output/
 tmp/
+model/
 
 # Bỏ qua cache của Python
 __pycache__/
