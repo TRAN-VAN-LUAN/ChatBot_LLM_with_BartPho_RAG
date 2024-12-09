@@ -1,5 +1,5 @@
 <div style="wight: 100%; height: 100%;">
-    <img src="./data/asset/img/work_flow.webp" alt="QA System Flowchart" width="500" style="display: block; margin-left: 100px;"/>
+    <img src="./data/asset/img/work_flow.png" alt="QA System Flowchart" width="500" style="display: block; margin-left: 100px;"/>
 </div>
 
 ## BARTpho QA Model with Vietnamese Medical Dataset
