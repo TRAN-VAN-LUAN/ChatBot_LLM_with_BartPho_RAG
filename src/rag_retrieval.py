@@ -120,11 +120,10 @@ def segment_contexts(semantic_chunks):
         words_only = [word for word in segmented_text if word.strip()]
         segmented_contexts.append(words_only)
     return segmented_contexts
-
 # Load data
 df = load_data(
-    'E:/university/TLCN/ChatBox/data/csv/processed_medical_full.csv', 
-    'E:/university/TLCN/ChatBox/data/csv/processed_tamanh_hospital_cleaned_full.csv'
+    'E:/university/TLCN/ChatBot/data/csv/processed_medical_full.csv', 
+    'E:/university/TLCN/ChatBot/data/csv/processed_tamanh_hospital_cleaned_full.csv'
 )
 
 # Initialize retrievers

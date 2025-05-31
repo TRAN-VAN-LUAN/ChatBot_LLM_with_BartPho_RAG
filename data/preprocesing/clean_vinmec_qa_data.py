@@ -163,8 +163,8 @@ def process_with_stopwords_removal(input_file, output_file, stopwords_file):
                 print(f"Error renaming temp file: {e}")
 
 if __name__ == "__main__":
-    input_csv_path = 'E:/university/TLCN/ChatBot/data/csv/qa_disease.csv'
-    output_csv_path = 'E:/university/TLCN/ChatBot/data/csv/processed_qa_disease.csv'
+    input_csv_path = 'E:/university/TLCN/ChatBot/data/csv/vinmec_qa.csv'
+    output_csv_path = 'E:/university/TLCN/ChatBot/data/csv/processed_vinmec_qa.csv'
     output_with_stopwords_removed = 'E:/university/TLCN/ChatBot/data/csv/processed_msd_qa_data_clean.csv'
     stopwords_file = 'E:/university/TLCN/ChatBot/data/vietnamese-stopwords.txt'
     
