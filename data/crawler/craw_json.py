@@ -95,7 +95,7 @@ def process_child_section(child_section, parent_title, json_title):
     if h3_titles:
         for h3_title in h3_titles:
             title = f"{parent_title} về {h3_title}".strip() if parent_title else f"{json_title} về {h3_title}".strip()
-            content = '\n'.join(span_contents + li_contents).strip()
+            content = '/n'.join(span_contents + li_contents).strip()
             if title:
                 section_data.append((title, content))
     
@@ -135,7 +135,7 @@ def process_p_tags(soup, parent_title, json_title):
                     if ul_span_content not in unique_spans:  # Loại bỏ các nội dung lặp lại trong <ul>
                         unique_spans.append(ul_span_content)
 
-            content = '\n'.join(unique_spans).strip()
+            content = '/n'.join(unique_spans).strip()
 
             # Kiểm tra độ dài của content trước khi thêm vào section_data
             if title and len(content) >= 50:
@@ -143,7 +143,7 @@ def process_p_tags(soup, parent_title, json_title):
 
     if not section_data and json_title:
         title = json_title.strip()
-        content = '\n'.join(span_contents).strip()
+        content = '/n'.join(span_contents).strip()
         if title and len(content) >= 50:
             section_data.append((title, content))
 
@@ -188,23 +188,23 @@ def process_data(data, csv_writer):
         title = item.get("title", item.get("subTitle", ""))
         link = item.get("link")
 
-        print("Title:", title)
-        print("Link:", link)
+        # print("Title:", title)
+        # print("Link:", link)
 
         if "children" not in item or len(item["children"]) == 0:
             sections_data = scrape_page(link, title)
             if sections_data:
                 for section_title, content in sections_data:
                     csv_writer.writerow([section_title, content, link])
-                    print("Title:", section_title)
-                    print("Content Preview:\n", content[:500])
+                    # print("Title:", section_title)
+                    # print("Content Preview:/n", content[:500])
         else:
-            print("Children:")
+            # print("Children:")
             process_data(item["children"], csv_writer)
             
 
 # Tạo file CSV và ghi dữ liệu
-def save_data_to_csv(data, file_path='../csv/medical.csv'):
+def save_data_to_csv(data, file_path='E:/university/TLCN/ChatBot/data/csv/medical.csv'):
     with open(file_path, mode='w', newline='', encoding='utf-8') as file:
         csv_writer = csv.writer(file)
         # Ghi tiêu đề cột
@@ -213,7 +213,7 @@ def save_data_to_csv(data, file_path='../csv/medical.csv'):
         process_data(data, csv_writer)
         
 # Load JSON data from a file
-json_file_path = '../json/listData.json'
+json_file_path = 'E:/university/TLCN/ChatBot/data/json/listData.json'
 json_data = load_json_file(json_file_path)
 
 if json_data:

@@ -4,40 +4,28 @@ import re
 import string
 from pyvi import ViTokenizer
 import nltk
-from transformers import AutoTokenizer
 
 # Download necessary NLTK resources
 nltk.download('punkt')
 
-# Load the tokenizer (e.g., BARTpho or any other tokenizer you are using)
-tokenizer = AutoTokenizer.from_pretrained('vinai/bartpho-syllable')
 
 def clean_text(text, keep_period=False):
     """Clean text by tokenizing, lowercasing, removing punctuation, and emojis."""
-    # Tokenize and lowercase
     text = ViTokenizer.tokenize(text).lower()
-    
-    # Remove punctuation and emojis
     text = remove_punctuation(text, keep_period)
-    
-    # Remove extra spaces
     text = re.sub(r'\s+', ' ', text).strip()
-    
     return text
 
 def remove_punctuation(text, keep_period=False):
     """Remove punctuation, emojis, and optionally keep periods."""
-    # Define punctuation to remove
     if keep_period:
         punctuation_to_remove = string.punctuation.replace(".", "").replace("_", "")
     else:
         punctuation_to_remove = string.punctuation.replace("_", "")
 
-    # Create translation table
     translator = str.maketrans('', '', punctuation_to_remove)
     text = text.translate(translator)
 
-    # Remove emojis
     emoji_pattern = re.compile(
         "[" 
         u"\U0001F600-\U0001F64F"  # emoticons
@@ -62,37 +50,23 @@ def remove_punctuation(text, keep_period=False):
     
     return text
 
-
 def transform_load(df):
     """Transform raw data to usable text, apply processing functions, and handle splitting."""
-    # Fill NaN values with empty strings
     df = df.fillna('')
-    
     new_rows = []
     
     for _, row in df.iterrows():
-        title = row['Title']
-        content = row['Detailed Content']
-        answer = row['Answer_of_Title']
-        reference_link = row['Reference Link']
-        answer_start= row['Answer_Start']
-        answer_end = row['Answer_End']
+        title = row['Question']
+        content = row['Answer']
         
-        
-        # Clean the text data
+        # Clean the text data and create new row
         new_row = {
-                'Title': clean_text(title),
-                'Detailed Content': clean_text(content, keep_period= True),
-                'Reference Link': reference_link,
-                'Answer_of_Title': clean_text(answer),
-                'Answer_Start': answer_start,
-                'Answer_End': answer_end
-            }
+            'Question': clean_text(title, keep_period=True),  # Cột Question
+            'Context': clean_text(content),  # Cột Answer
+        }
         new_rows.append(new_row)
     
-    # Convert new_rows into a DataFrame
     new_df = pd.DataFrame(new_rows)
-    
     return new_df
 
 def save_to_csv(processed_news, output_path):
@@ -101,16 +75,11 @@ def save_to_csv(processed_news, output_path):
 
 # Example usage
 if __name__ == "__main__":
-    input_csv_path = '../csv/medical_tf-idf.csv'
-    output_csv_path = '../csv/processed_medical_tf-idf.csv'
+    input_csv_path = '../csv/processed_tamanh_hospital_cleaned.csv'
+    output_csv_path = '../csv/processed_tamanh_hospital_cleaned_full.csv'
     
-    # Load the CSV file
     df = pd.read_csv(input_csv_path)
-    
-    # Transform and process the data
     processed_news = transform_load(df)
-    
-    # Save processed data to CSV
     save_to_csv(processed_news, output_csv_path)
 
     print(f"Processed data has been saved to {output_csv_path}.")

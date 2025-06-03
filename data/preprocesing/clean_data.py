@@ -12,7 +12,7 @@ nltk.download('punkt')
 # Load the tokenizer (e.g., BARTpho or any other tokenizer you are using)
 tokenizer = AutoTokenizer.from_pretrained('vinai/bartpho-syllable')
 
-def clean_text(text, keep_period=False):
+def clean_text(text, keep_period=True):
     """Clean text by tokenizing, lowercasing, removing punctuation, and emojis."""
     # Tokenize and lowercase
     text = ViTokenizer.tokenize(text).lower()
@@ -21,11 +21,11 @@ def clean_text(text, keep_period=False):
     text = remove_punctuation(text, keep_period)
     
     # Remove extra spaces
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'/s+', ' ', text).strip()
     
     return text
 
-def remove_punctuation(text, keep_period=False):
+def remove_punctuation(text, keep_period=True):
     """Remove punctuation, emojis, and optionally keep periods."""
     # Define punctuation to remove
     if keep_period:
@@ -47,22 +47,22 @@ def remove_punctuation(text, keep_period=False):
         u"\U00002500-\U00002BEF"  # chinese char
         u"\U00002702-\U000027B0"
         u"\U000024C2-\U0001F251"
-        u"\U0001f926-\U0001f937"
-        u"\U00010000-\U0010ffff"
+        u"\U0001F926-\U0001F937"
+        u"\U00010000-\U0010FFFF"
         u"\u2640-\u2642"
         u"\u2600-\u2B55"
-        u"\u200d"
-        u"\u23cf"
-        u"\u23e9"
-        u"\u231a"
-        u"\ufe0f"  # dingbats
+        u"\u200D"
+        u"\u23CF"
+        u"\u23E9"
+        u"\u231A"
+        u"\uFE0F"  # dingbats
         u"\u3030"
         "]+", flags=re.UNICODE)
     text = emoji_pattern.sub('', text)
     
     return text
 
-def split_text_by_length(text, max_length=150):
+def split_text_by_length(text, max_length=1024):
     """Split text into chunks with a maximum number of tokens."""
     sentences = sent_tokenize(text)
     chunks = []
@@ -114,7 +114,6 @@ def transform_load(df):
         title = row['Title']
         content = row['Detailed Content']
         reference_link = row['Reference Link']
-        context = row['Context']
         
         # Split and clean content
         content_chunks = split_text_by_length(content, max_length=1024)
@@ -125,7 +124,6 @@ def transform_load(df):
                 'Title': clean_text(title),
                 'Detailed Content': cleaned_chunk,
                 'Reference Link': reference_link,
-                'Context': clean_text(context, keep_period=True)
             }
             new_rows.append(new_row)
     
@@ -140,8 +138,8 @@ def save_to_csv(processed_news, output_path):
 
 # Example usage
 if __name__ == "__main__":
-    input_csv_path = '../csv/medical_with_context.csv'
-    output_csv_path = '../csv/processed_medical_cleaned.csv'
+    input_csv_path = 'E:/university/TLCN/ChatBot/data/csv/medical.csv'
+    output_csv_path = 'E:/university/TLCN/ChatBot/data/csv/processed_medical.csv'
     
     # Load the CSV file
     df = pd.read_csv(input_csv_path)
