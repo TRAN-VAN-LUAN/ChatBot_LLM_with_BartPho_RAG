@@ -30,21 +30,13 @@ import os
 # Lấy đường dẫn tương đối từ vị trí file hiện tại
 current_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(current_dir)  # Thư mục gốc của dự án (lùi lại 1 cấp từ src)
-csv_dir = os.path.join(base_dir, 'data', 'csv')
-
-# Đọc các file CSV với đường dẫn tương đối
-df_msd_context = pd.read_csv(os.path.join(csv_dir, 'msd_context_data.csv'))
-df_vinmec_context = pd.read_csv(os.path.join(csv_dir, 'vinmec_context.csv'))
-df_vinmec_qa = pd.read_csv(os.path.join(csv_dir, 'vinmec_qa.csv'))
-
-df_context = pd.concat([df_msd_context, df_vinmec_context], ignore_index=True)
 
 # Stopwords for preprocessing
-multi_word_stopwords = ['dấu hiệu']
+multi_word_stopwords = ['dấu hiệu', 'thế nào']
 single_word_stopwords = set([
     'là', 'của', 'và', 'hoặc', 'có', 'trong',
     'các', 'những', 'đó', 'đây', 'ra', 'gì', 'theo',
-    'để', 'cho', 'bệnh', 'thuốc'
+    'để', 'cho', 'thuốc'
 ])
 
 # Initialize embedding model
@@ -61,6 +53,8 @@ class CustomEmbedder:
         return embedding.tolist()
 
 def remove_stopwords(phrase):
+    phrase = re.sub(r'[?.!]+$', '', phrase).strip()
+
     """Remove stopwords from a phrase"""
     phrase_lower = phrase.lower()
 
@@ -133,60 +127,6 @@ def sentence_to_keywords(text):
 
     return results
 
-def embed_nodes_and_create_vector_index(driver, labels, embedding_model, index_name, dim=768):
-    """
-    Sinh embedding lại toàn bộ node có label được chỉ định (trừ Chunk/Document)
-    và chỉ xử lý node có embedding bị sai chiều hoặc chưa có embedding.
-    """
-
-    exclude_labels = {"Chunk", "Document"}
-
-    with driver.session() as session:
-        for label in labels:
-            if label.lower() in exclude_labels:
-                continue
-
-            # Lấy node có id, và hoặc embedding bị thiếu hoặc sai chiều (khác dim)
-            result = session.run(f"""
-                MATCH (n:`{label}`)
-                WHERE n.id IS NOT NULL AND (
-                    n.embedding IS NULL OR size(n.embedding) <> $dim
-                )
-                RETURN id(n) AS node_id, n.id AS text
-            """, dim=dim)
-
-            nodes = [(record["node_id"], record["text"]) for record in result]
-
-            if not nodes:
-                continue
-
-            # Sinh embedding
-            texts = [text for _, text in nodes]
-            embeddings = embedding_model.encode(texts, normalize_embeddings=True).tolist()
-
-            # Cập nhật embedding mới vào graph
-            for (node_id, _), embedding in tqdm(zip(nodes, embeddings), total=len(nodes), desc=f"→ Updating {label}"):
-                session.run("""
-                    MATCH (n)
-                    WHERE id(n) = $node_id
-                    SET n.embedding = $embedding
-                    SET n:`__Entity__`
-                """, node_id=node_id, embedding=embedding)
-
-        # Xoá index cũ nếu có
-        session.run(f"DROP INDEX {index_name} IF EXISTS")
-
-        # Tạo index mới
-        session.run(f"""
-            CALL db.index.vector.createNodeIndex(
-                $index_name,
-                '__Entity__',
-                'embedding',
-                $dim,
-                'cosine'
-            )
-        """, index_name=index_name, dim=dim)
-
 # Check if index exists and create it if not
 def initialize_driver_retriever(entity_group = 'BỆNH'):
     # Initialize retriever with error handling
@@ -194,18 +134,10 @@ def initialize_driver_retriever(entity_group = 'BỆNH'):
 
     if entity_group == 'BỆNH':
         driver_benh = GraphDatabase.driver("neo4j+s://4881e1c6.databases.neo4j.io", auth=("neo4j", "D4KxdYEfgvRvDAsfvG71Hd0w9bNEyUo8N5s3EmjDmAk"))
-
-        ## embedding các node bệnh
-        labels_benh = ['Chủ đề', 'Tiêu đề', 'Nội dung', 'BỆNH', 'THUỘC_TÍNH_BỆNH', 'NỘI_DUNG_THUỘC_TÍNH_BỆNH']
-        embed_nodes_and_create_vector_index(driver_benh, labels_benh, model_emb, 'benh_embedding', dim=768)
         retriever_benh = VectorRetriever(driver_benh, 'benh_embedding', embedder)
         return retriever_benh, driver_benh
     else:
         driver_thuoc = GraphDatabase.driver("neo4j+s://fb4f9b28.databases.neo4j.io", auth=("neo4j", "qJ2NxeAu5m8lcPtDD3njUaKRD6e9hExbw5GgCU5BxcE"))
-
-        ## embedding các node thuốc
-        labels_thuoc = ['THUỐC', 'THUỘC_TÍNH_THUỐC', 'NỘI_DUNG_THUỘC_TÍNH_THUỐC']
-        embed_nodes_and_create_vector_index(driver_thuoc, labels_thuoc, model_emb, 'thuoc_embedding', dim=768)
         retriever_thuoc = VectorRetriever(driver_thuoc, 'thuoc_embedding', embedder)
         return retriever_thuoc, driver_thuoc
 
@@ -224,16 +156,26 @@ def search_queries(retriever, query_list, top_k=5, verbose=False):
     """
 
     results_dict = {}
-    high_score_results = []
+    all_results = []
 
+    # Truy vấn từng từ khóa
     for query_text in query_list:
         results = retriever.search(query_text=query_text, top_k=top_k)
         results_dict[query_text] = results.items
+        all_results.extend(results.items)
 
-        for item in results.items:
-            score = item.metadata.get('score', 0)
-            if score > 0.9:
-                high_score_results.append(item)
+    # Tìm ngưỡng phù hợp
+    threshold = 0.7  # mặc định
+    if any(item.metadata.get("score", 0) > 0.9 for item in all_results):
+        threshold = 0.9
+    elif any(item.metadata.get("score", 0) > 0.8 for item in all_results):
+        threshold = 0.8
+
+    # Lọc kết quả theo ngưỡng đã chọn
+    high_score_results = [
+        item for item in all_results
+        if item.metadata.get("score", 0) > threshold
+    ]
 
     return results_dict, high_score_results
 
@@ -243,12 +185,29 @@ def get_existing_labels(driver):
         result = session.run("CALL db.labels()")
         return {record["label"] for record in result}
 
+def find_parent_node(session, node_id):
+    """
+    Tìm node cha của node nội dung.
+    """
+    query = """
+    MATCH (parent)-[*1..2]->(child)
+    WHERE child.id = $node_id
+    RETURN parent.id AS parent_id, labels(parent) AS parent_labels
+    LIMIT 1
+    """
+    result = session.run(query, node_id=node_id)
+    record = result.single()
+    if record:
+        return record['parent_id'], record['parent_labels']
+    return None, None
+
 def find_entities_from_retriever_results(driver, high_score_results, target_field='id'):
     """
     Tìm các thực thể BỆNH và THUỐC từ kết quả Retriever.
-    Trả về danh sách [(id, count)] đã sort, KHÔNG có prefix.
+    Trả về danh sách [(id, [list các node trùng])], đã sort theo độ dài list giảm dần.
+    Nếu [list các node trùng] chứa các node là Nội dung, NỘI_DUNG_THUỘC_TÍNH_BỆNH, NỘI_DUNG_THUỘC_TÍNH_THUỐC thì tìm về node phía trước nó.
     """
-    match_count = defaultdict(int)
+    match_map = defaultdict(list)
 
     # Lấy các label thực tế có trong DB
     existing_labels = get_existing_labels(driver)
@@ -271,6 +230,13 @@ def find_entities_from_retriever_results(driver, high_score_results, target_fiel
             if not node_id or not target_labels:
                 continue
 
+            # Nếu là node nội dung, tìm node cha
+            if any(label in ['Nội dung', 'NỘI_DUNG_THUỘC_TÍNH_BỆNH', 'NỘI_DUNG_THUỘC_TÍNH_THUỐC'] for label in target_labels):
+                parent_id, parent_labels = find_parent_node(session, node_id)
+                if parent_id and parent_labels:
+                    node_id = parent_id
+                    target_labels = [label for label in parent_labels if label != '__Entity__']
+
             for target_label in target_labels:
                 for entity_type in valid_entity_types:
                     query = f"""
@@ -284,9 +250,11 @@ def find_entities_from_retriever_results(driver, high_score_results, target_fiel
                     """
                     result = session.run(query, value=node_id)
                     for record in result:
-                        match_count[record['id']] += 1
+                        matched_id = record['id']
+                        match_map[matched_id].append(node_id)  # lưu lại các node trùng với thực thể
 
-    return sorted(match_count.items(), key=lambda x: x[1], reverse=True)
+    # Trả về danh sách (id, [list các node trùng]) được sort theo độ dài list giảm dần
+    return sorted(match_map.items(), key=lambda x: len(x[1]), reverse=True)
 
 def filter_question(question, model_name="gpt-4o-mini"):
     llm = ChatOpenAI(model_name=model_name, temperature=0)
@@ -296,38 +264,155 @@ def filter_question(question, model_name="gpt-4o-mini"):
     ])
     return response.content.strip()
 
-def get_top_topic_contexts(retriever, driver, question, df_context):
+def get_label_of_entity(entity_id, driver):
+    """
+    Lấy danh sách nhãn (labels) của node có id tương ứng, bỏ qua '__ENTITY__'.
+    Trả về danh sách labels (ví dụ: ['BỆNH'], ['CHỦ_ĐỀ'], ...).
+    """
+
+    with driver.session() as session:
+        query = (
+            "MATCH (n) "
+            "WHERE n.id = $entity_id "
+            "RETURN labels(n) AS labels "
+            "LIMIT 1"
+        )
+        result = session.run(query, entity_id=entity_id)
+        record = result.single()
+        if record:
+            labels = record["labels"]
+            filtered_labels = [label for label in labels if label != "__Entity__"]
+            return filtered_labels
+    return []
+
+def get_related_nodes(entity_id, driver):
+    """
+    Lấy danh sách các node có quan hệ outgoing với node có id là entity_id,
+    tự động xác định label của node này và truy vấn theo label đó.
+    """
+
+    labels = get_label_of_entity(entity_id, driver)
+
+    if not labels:
+        return []
+    label = labels[0]  # Chọn label đầu tiên (sau khi đã loại bỏ __Entity__)
+
+    with driver.session() as session:
+        query = (
+            f"MATCH (n:`{label}` {{id: $entity_id}})-[r]->(m) "
+            "RETURN DISTINCT m.id AS node_name"
+        )
+        result = session.run(query, entity_id=entity_id)
+        related_nodes = [record["node_name"] for record in result]
+        return related_nodes
+    
+def create_context_from_top_results(top_results, driver):
+    def capitalize_sentences(text):
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        return ' '.join(s.capitalize() for s in sentences)
+
+    contexts = []
+
+    for topic_name, related_nodes in top_results:
+        def build_context(nodes):
+            parts = []
+            khainiem_text = None
+            for attr in nodes:
+                # Bỏ qua nếu node có label là BỆNH, THUỐC hoặc CHỦ_ĐỀ
+                labels = get_label_of_entity(attr, driver)
+                if not labels or any(lbl.upper() in {"BỆNH", "THUỐC", "CHỦ_ĐỀ"} for lbl in labels):
+                    continue
+
+                details = get_related_nodes(attr, driver)
+                if details:
+                    clean_details = [d.rstrip('.').strip().lower() for d in details]
+                    attr_clean = attr.strip().lower()
+
+                    if attr_clean.startswith("khái niệm"):
+                        khainiem_text = ", ".join(sorted(set(clean_details)))
+                    else:
+                        # Ghép mỗi 2 chi tiết thành 1 câu
+                        for i in range(0, len(clean_details), 2):
+                            chunk = clean_details[i:i+2]
+                            # Chuyển dấu chấm thành dấu phẩy trong từng detail trước khi merge
+                            chunk = [d.replace('.', ',') for d in chunk]
+                            merged = ", ".join(sorted(set(chunk)))
+                            parts.append(f"{attr_clean} là {merged}")
+            if khainiem_text:
+                parts.insert(0, khainiem_text)
+            context = ". ".join(parts) + "."
+            return capitalize_sentences(context)
+
+        # Tạo context chính
+        main_context = build_context(related_nodes)
+
+        # Đếm số câu trong main_context
+        sentence_count = len([s for s in re.split(r'[.!?]\s*', main_context) if s.strip()])
+
+        extra_sentence = ""
+        if sentence_count < 2:
+            all_nodes = get_related_nodes(topic_name, driver)
+            extra_nodes = [n for n in all_nodes if n not in related_nodes]
+            for attr in extra_nodes:
+                labels = get_label_of_entity(attr, driver)
+                if not labels or any(lbl.upper() in {"BỆNH", "THUỐC", "CHỦ_ĐỀ"} for lbl in labels):
+                    continue
+
+                details = get_related_nodes(attr, driver)
+                if details:
+                    clean_details = [d.strip().lower().replace('.', ',').rstrip(',').strip() for d in details]
+                    merged_detail = ", ".join(sorted(set(clean_details)))
+                    attr_clean = attr.strip().lower()
+                    extra_sentence = capitalize_sentences(f"{attr_clean} là {merged_detail}.")
+                    break
+
+        # Gộp context đầy đủ
+        full_context = main_context + " " + extra_sentence if extra_sentence else main_context
+        contexts.append(full_context)
+
+    return contexts
+
+
+def get_top_topic_contexts(retriever, driver, question):
     results_dict, high_score_results = search_queries(
         retriever,
         sentence_to_keywords(question)
     )
-    result_find = find_entities_from_retriever_results(
+    # tìm kiếm topics với node có điểm cao nhất
+    max_score = max((item.metadata.get('score', 0) for item in high_score_results), default=0)
+    highest_score_results = [item for item in high_score_results if item.metadata.get('score', 0) == max_score]
+    topic_highest_score = find_entities_from_retriever_results(
+        driver,
+        highest_score_results
+    )
+
+    # tìm kiếm topics có count nhiều nhất
+    highest_score_results = find_entities_from_retriever_results(
         driver,
         high_score_results
     )
+    max_count = max(len(matches) for _, matches in highest_score_results)
+    topic_highest_count = [
+        (entity_id, matches)
+        for entity_id, matches in highest_score_results
+        if len(matches) == max_count
+    ]
 
-    if not result_find:
-        return []
+    # Gộp 2 danh sách kết quả theo entity_id
+    merged_result = defaultdict(set)
+    for entity_id, matches in topic_highest_score + topic_highest_count:
+        merged_result[entity_id].update(matches)
+    result = [(entity_id, list(matches)) for entity_id, matches in merged_result.items()]
 
-    # Tìm giá trị count cao nhất
-    max_count = max(result_find, key=lambda x: x[1])[1]
+    # Tạo danh sách context từ các kết quả tìm kiếm
+    contexts = create_context_from_top_results(result, driver)
 
-    # Lấy tất cả topic có count bằng max_count
-    top_topics = [topic for topic, count in result_find if count == max_count]
-
-    # Lấy context tương ứng với các topic này
-    context_rows = df_context[df_context["topic"].isin(top_topics)]
-    contexts = context_rows["context"].tolist()
-
-    # Tạo danh sách Document
     documents = [
         Document(page_content=context, metadata={"source": idx})
         for idx, context in enumerate(contexts)
     ]
-
-    # Tách văn bản thành các chunk nhỏ
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=712,
+        chunk_size=512,
         chunk_overlap=0,
         separators=["."]
     )
@@ -356,7 +441,7 @@ def get_context_from_question(question):
             print("Failed to initialize retriever or driver.")
             return []
         # Get top topic contexts based on the question
-        contexts = get_top_topic_contexts(retriever, driver, question, df_context)
+        contexts = get_top_topic_contexts(retriever, driver, question)
         return contexts
     except Exception as e:
         print(f"Error during context retrieval: {e}")

@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """Generation Module for Vietnamese Medical Q&A Chatbot using LLaMA with Vinmec dataset"""
 
+from collections import defaultdict
 import torch
 import re
 import numpy as np
 from transformers import PreTrainedTokenizerFast
 from graprag import get_context_from_question  # Import the get_context_from_question function from graprag.py
-from underthesea import word_tokenize
+# from underthesea import word_tokenize
 import gradio as gr 
 import logging
 import onnxruntime as ort
@@ -46,9 +47,32 @@ def get_session_and_tokenizer():
         session, tokenizer = load_session_and_tokenizer(ONNX_MODEL_PATH, TOKENIZER_PATH)
     return session, tokenizer
 
+def merge_similar_sentences(answer):
+    # Tách câu bằng dấu chấm, dấu hỏi, dấu chấm than
+    sentences = [s.strip() for s in re.split(r'[.?!]', answer) if s.strip()]
+    grouped = defaultdict(list)
+    for sentence in sentences:
+        words = sentence.split()
+        if "là" in words:
+            idx = words.index("là") + 1  # lấy cả từ "là"
+            prefix = ' '.join(words[:idx])
+            suffix = ' '.join(words[idx:]) if idx < len(words) else ''
+            grouped[prefix].append(suffix.strip())
+        else:
+            # Nếu không có "là", dùng cả câu làm prefix, không merge
+            grouped[sentence].append('')
+    merged_sentences = []
+    for prefix, suffixes in grouped.items():
+        if all(not s for s in suffixes):  # chỉ có prefix, không có phần đuôi
+            merged_sentences.append(prefix)
+        else:
+            merged = prefix + ' ' + ', '.join(s for s in suffixes if s)
+            merged_sentences.append(merged)
+    return '. '.join(merged_sentences) + '.'
+
 def generate_answer(question: str, contexts: list) -> str:
     answers = []
-    
+    question = re.sub(r'[?.!]+$', '', question).strip()
     # Chỉ lấy tối đa 2 context đầu tiên
     contexts_to_process = contexts[:2] if len(contexts) > 2 else contexts
 
@@ -72,7 +96,7 @@ def generate_answer(question: str, contexts: list) -> str:
 
         # Lấy vị trí start và end token có xác suất cao nhất
         start_idx = np.argmax(start_logits[0])
-        end_idx = np.argmax(end_logits[0]) + 1  # +1 để lấy token cuối cùng        # Giải mã token thành câu trả lời
+        end_idx = np.argmax(end_logits[0]) + 1  # +1 để lấy token cuối cùng
         answer_ids = input_ids[0][start_idx:end_idx]
         answer = tokenizer.decode(answer_ids, skip_special_tokens=True)
         
@@ -83,8 +107,10 @@ def generate_answer(question: str, contexts: list) -> str:
 
     # Kết hợp các câu trả lời thành một chuỗi
     combined_answer = ". ".join(filter(None, answers))
+    # Gộp các câu tương tự
+    combined_answer = merge_similar_sentences(combined_answer)
     # Đảm bảo câu trả lời kết hợp không rỗng
-    if not combined_answer:
+    if not combined_answer or combined_answer.strip() in ['<s>', '</s>', '<s></s>'] or combined_answer.isspace():
         combined_answer = "Không tìm thấy câu trả lời phù hợp"
         
     return combined_answer
@@ -95,50 +121,43 @@ def remove_whitespace_around_dot(text):
     return re.sub(r'\s*\.\s*', '.', text)
 
 def answer_question(test_question: str, history):
-    """Process the question, generate an answer, and update conversation history."""
-    
-    # Initialize history if it's None
-    if history is None:
-        history = []
-    logging.info('_'*50)
-    logging.info(f'question: {test_question}')
+    """Process one or multiple questions, generate answers, and update conversation history."""
 
-    clean_question = remove_whitespace_around_dot(test_question)
-    
-    # Use both retrieval methods: original and get_context_from_question
-    graph_contexts = get_context_from_question(clean_question)
-    
-      # Generate an answer based on the retrieved details
-    print(f"graph_contexts: {graph_contexts}")
-    if graph_contexts:
-        answer = generate_answer(clean_question, graph_contexts)
-    else:
-        answer = 'Không tìm thấy câu trả lời phù hợp!'
-        
-    # Kiểm tra câu trả lời trống hoặc chỉ chứa thẻ đặc biệt
-    if not answer or answer.strip() in ['<s>', '</s>', '<s></s>'] or answer.isspace():
-        answer = 'Không tìm thấy câu trả lời phù hợp!'    # Chuyển đổi các thẻ <br> thành xuống dòng thực sự
-    answer = answer.replace("<br>", "\n")
-    
-    # Format the answer for better readability
-    processed_parts = []
-    for part in answer.split(', '):
-        if ':' in part:
-            key, value = part.rsplit(':', 1)  # Dùng rsplit để chỉ tách dấu `:` cuối cùng
-            if value.strip():  # Nếu sau dấu ':' không rỗng
-                processed_parts.append(f"{key.strip()} : {value.strip()}")
+    # Tách danh sách câu hỏi 
+    questions = [
+        re.sub(r'[?.!]+$', '', q).strip()
+        for q in re.split(r'[.?!]\s*', test_question)
+        if q.strip()
+    ]
+    all_answers = []
+
+    for q in questions:
+        if not q.endswith('?'):
+            q += '?'
+        logging.info('_'*50)
+        logging.info(f'question: {q}')
+
+        clean_question = remove_whitespace_around_dot(q)
+        graph_contexts = get_context_from_question(clean_question)
+        print(f"graph_contexts: {graph_contexts}")
+        if graph_contexts:
+            answer = generate_answer(clean_question, graph_contexts)
         else:
-            processed_parts.append(part.strip())
+            answer = 'Không tìm thấy câu trả lời phù hợp!'
 
-    # Gộp lại thành chuỗi với dấu xuống dòng
-    answer = '\n'.join(processed_parts)
-    logging.info(f'answer: {answer}')
+        if not answer or answer.strip() in ['<s>', '</s>', '<s></s>'] or answer.isspace():
+            answer = 'Không tìm thấy câu trả lời phù hợp!'
+        answer = answer.replace("<br>", "\n")
+        answer = re.sub(r'\.\s*', '.\n', answer).strip()
+        logging.info(f'answer: {answer}')
 
-    # Update the conversation history with question and answer
-    history.append((test_question, answer))
-    
-    # Return updated conversation history
-    return history, ""
+        all_answers.append(f"**Q:** {q}\n**A:** {answer}")
+
+        # Lưu vào history từng cặp Q&A
+        history.append((q, answer))
+
+    # Gộp tất cả Q&A thành một chuỗi trả về
+    return history, "\n\n".join(all_answers)
 
 def handle_submit(user_message, history):
     """Xử lý logic khi người dùng nhấn Enter hoặc Submit."""
@@ -159,14 +178,13 @@ def run_gradio():
 
     # Suggested queries for the user to click (Vietnamese medical questions)
     suggestions = [
-        "Các triệu chứng thường gặp của bệnh Covid-19 là gì?", 
-        "Thuốc paracetamol dùng để làm gì?",
-        "Triệu chứng của bệnh tiểu đường", 
-        "Cách điều trị cao huyết áp", 
-        "Dùng thuốc Amoxicillin như thế nào?", 
+        "Công dụng của paracetamol?",
+        "Triệu chứng của bệnh Tiểu đường", 
+        "Cách điều trị huyết áp cao", 
+        "Cách dùng của thuốc Amoxicillin?", 
         "Vitamin K1 có tác dụng gì?", 
         "Tác dụng phụ của thuốc aspirin", 
-        "Thế nào là nhồi máu cơ tim?",
+        "Thế nào là Nhồi máu cơ tim?",
         "Cách phòng bệnh sốt xuất huyết",
         "Cảnh báo khi sử dụng thuốc Panadol", 
         "Triệu chứng của bệnh viêm gan",
