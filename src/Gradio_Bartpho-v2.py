@@ -110,7 +110,7 @@ def generate_answer(question: str, contexts: list) -> str:
     # Gộp các câu tương tự
     combined_answer = merge_similar_sentences(combined_answer)
     # Đảm bảo câu trả lời kết hợp không rỗng
-    if not combined_answer or combined_answer.strip() in ['<s>', '</s>', '<s></s>'] or combined_answer.isspace():
+    if not combined_answer or combined_answer.strip() in ['<s>', '</s>', '<s></s>', '.'] or combined_answer.isspace():
         combined_answer = "Không tìm thấy câu trả lời phù hợp"
         
     return combined_answer
