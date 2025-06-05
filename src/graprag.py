@@ -411,14 +411,30 @@ def get_top_topic_contexts(retriever, driver, question):
         Document(page_content=context, metadata={"source": idx})
         for idx, context in enumerate(contexts)
     ]
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=512,
+    # Tách văn bản thành các chunk nhỏ
+    text_splitter_dot = RecursiveCharacterTextSplitter(
+        chunk_size=412,
         chunk_overlap=0,
         separators=["."]
     )
-    texts = text_splitter.split_documents(documents)
 
-    return [doc.page_content for doc in texts]
+    text_splitter_comma = RecursiveCharacterTextSplitter(
+        chunk_size=412,
+        chunk_overlap=0,
+        separators=[","]
+    )
+
+    # Bước 1: Chia theo dấu chấm "."
+    dot_chunks = text_splitter_dot.split_documents(documents)
+
+    # Bước 2: Tiếp tục chia từng đoạn theo dấu phẩy ","
+    final_chunks = []
+    for chunk in dot_chunks:
+        smaller_chunks = text_splitter_comma.split_documents([chunk])
+        final_chunks.extend(smaller_chunks)
+
+    # Trả về nội dung văn bản đã chia nhỏ
+    return [doc.page_content for doc in final_chunks]    
 
 
 def get_context_from_question(question):
