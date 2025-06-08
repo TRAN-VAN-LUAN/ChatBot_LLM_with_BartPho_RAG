@@ -1,0 +1,27 @@
+=========================================
+THÔNG TIN ĐỀ TÀI VÀ SINH VIÊN THỰC HIỆN
+=========================================
+
+Tên đề tài:
+XÂY DỰNG HỆ THỐNG HỎI ĐÁP VỀ SỨC KHỎE  
+
+Sinh viên thực hiện:
+Họ và tên: Trần Văn Luân
+Mã số sinh viên: 21133106
+Email: 21133106@student.hcmute.edu.vn
+
+Họ và tên: Võ Công Minh
+Mã số sinh viên: 21133056
+Email: 21133056@student.hcmute.edu.vn
+
+Giảng viên hướng dẫn:
+Họ và tên: Trần Trọng Bình
+
+Link GitHub source code:
+https://github.com/TRAN-VAN-LUAN/ChatBot_LLM_with_BartPho_GraphRAG
+
+Ghi chú:
+- Mã nguồn bao gồm: code huấn luyện mô hình, code hệ thống truy xuất GraphRAG, dữ liệu mẫu, demo và tài liệu hướng dẫn cài đặt.
+- Phiên bản báo cáo hiện tại: [V1.0 | 2025-06-07]
+
+=========================================
