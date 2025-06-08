@@ -74,9 +74,9 @@ def generate_answer(question: str, contexts: list) -> str:
     answers = []
     question = re.sub(r'[?.!]+$', '', question).strip()
     # Chỉ lấy tối đa 2 context đầu tiên
-    contexts_to_process = contexts[:2] if len(contexts) > 2 else contexts
+    # contexts_to_process = contexts[:2] if len(contexts) > 2 else contexts
 
-    for context in contexts_to_process:
+    for context in contexts:
         # Xử lý context: thay _ bằng khoảng trắng
         context = context.replace('_', ' ')
 
